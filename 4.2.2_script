@@ -81,22 +81,15 @@ def fstab(partition, line):
         # fstab 파일에서 주석을 제외한 중복 항목 확인
         lines = [entry.strip() for entry in lines if entry.strip() and not entry.strip().startswith("#")]
 
+        # 이미 해당 파티션 항목이 있는지 확인
         entry_exists = False
-        entry_index = -1  # 기존 항목의 인덱스를 추적
-
-        # 기존 fstab 항목 확인 및 수정 여부 결정
-        for i, file_line in enumerate(lines):
-            if file_line.startswith(partition):
+        for line in lines:
+            if line.startswith(f"/dev/{partition}"):
                 entry_exists = True
-                entry_index = i
                 break
 
         if entry_exists:
-            # 기존 항목을 수정
-            lines[entry_index] = fstab_entry  # 해당 라인을 새로운 항목으로 교체
-            with open('/etc/fstab', 'w') as fstab_file:
-                fstab_file.writelines("\n".join(lines) + "\n")
-            print(f"{line}/etc/fstab 수정\n{partition} 항목이 수정되었습니다.")
+            print(f"{line}/etc/fstab 수정\n{partition} 항목은 이미 존재합니다. 수정하지 않습니다.")
         else:
             # 중복 항목이 없다면 /etc/fstab에 새 항목 추가
             with open('/etc/fstab', 'a') as fstab_file:
@@ -144,12 +137,16 @@ def enable_quota(line):
         # 명령어의 출력 결과를 문자열로 변환
         output = result.stdout.decode()
 
-        # 결과에서 "user quota" 상태를 확인
-		if "user quota" in output and "off" in output:
-				subprocess.run(['sudo', 'quotaon', '/test'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print(f"{line}쿼터 활성화\n쿼터 활성화 완료.")
-		else: 
-				print(f"{line}쿼터 활성화\n/test 파티션에 쿼터가 이미 활성화되어 있습니다.")
+        # 쿼터 상태 확인
+        if "user quota" in output:
+            if "off" in output:
+                # 쿼터가 비활성화 상태일 때만 활성화
+                subprocess.run(['sudo', 'quotaon', '/test'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"{line}쿼터 활성화\n쿼터 활성화 완료.")
+            else:
+                print(f"{line}쿼터 활성화\n/test 파티션에 쿼터가 이미 활성화되어 있습니다.")
+        else:
+            print(f"{line}쿼터 상태 확인 실패\n쿼터 상태를 확인할 수 없습니다. /test 파티션에서 'user quota'가 발견되지 않았습니다.")
 
     except subprocess.CalledProcessError as e:
         print(f"{line}쿼터 활성화\n쿼터 활성화 실패 : {e}")
