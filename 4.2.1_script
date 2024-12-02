@@ -1,0 +1,58 @@
+import time, datetime
+import socket
+import subprocess
+
+# 현재 시간과 호스트 이름 가져오기
+date = datetime.datetime.now()
+host = socket.gethostname()
+
+# IP 가져오기
+def ip_addr():
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+ip = ip_addr()
+# 프로세스 가져오기
+def processes_check():
+    all_processes = subprocess.check_output('pstree', shell=True).decode('utf-8')
+    excluded_processes = ['sshd', 'login']
+    
+    abnormal_processes = []
+
+    # 비정상 프로세스를 abnormal_processes 리스트에 추가
+    for proc in all_processes.splitlines():
+        if not any(excluded in proc for excluded in excluded_processes):
+            abnormal_processes.append(proc)
+
+    # 비정상 프로세스가 있으면 출력
+    if abnormal_processes:
+        print(ip)
+        print(f"Host : {host}")
+        print(f"Date : {date.strftime('%Y - %m - %d | %H : %M : %S')}")
+        print("비정상 프로세스 :")
+        for proc in abnormal_processes:
+            print(proc)
+    else:
+        print("비정상 프로세스가 없습니다.")
+
+#서버 부하 여부 함수
+def server_under():
+    res = subprocess.check_output(['vmstat', '1', '1']).decode('utf-8')
+    lines = res.splitlines()
+    last_lines = lines[-1]
+
+    columns = last_lines.split()
+    r = int(columns[0])
+    b = int(columns[1])
+
+    if r >= 5 or b >= 5:
+        print(f'CPU_proc : {r} \nI/O_proc : {b}\nServer_status : 서버 부하')
+    else:
+        print(f'CPU_proc : {r} \nI/O_proc : {b}\nServer_status : 서버 안정')
+
+# 함수 실행
+processes_check()
+server_under()
