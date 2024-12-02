@@ -138,12 +138,11 @@ def enable_quota(line):
         output = result.stdout.decode()
 
         # 쿼터 상태 확인
-        if "user quota" in output:
-            if "off" in output:
+        if f"user quota on /test (/dev/{partition}) is off" in output:
                 # 쿼터가 비활성화 상태일 때만 활성화
                 subprocess.run(['sudo', 'quotaon', '/test'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 print(f"{line}쿼터 활성화\n쿼터 활성화 완료.")
-            else:
+        elif f"user quota on /test (/dev/{partition}) is on" in output:
                 print(f"{line}쿼터 활성화\n/test 파티션에 쿼터가 이미 활성화되어 있습니다.")
         else:
             print(f"{line}쿼터 상태 확인 실패\n쿼터 상태를 확인할 수 없습니다. /test 파티션에서 'user quota'가 발견되지 않았습니다.")
