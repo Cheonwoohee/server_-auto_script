@@ -145,11 +145,11 @@ def enable_quota(line):
         output = result.stdout.decode()
 
         # 결과에서 "user quota" 상태를 확인
-        if "user quota" in output and "off" in output:
-            subprocess.run(['sudo', 'quotaon', '/test'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print(f"{line}쿼터 활성화\n쿼터 활성화 완료.")
-        else: 
-            print(f"{line}쿼터 활성화\n/test 파티션에 쿼터가 이미 활성화되어 있습니다.")
+		if "user quota" in output and "off" in output:
+				subprocess.run(['sudo', 'quotaon', '/test'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"{line}쿼터 활성화\n쿼터 활성화 완료.")
+		else: 
+				print(f"{line}쿼터 활성화\n/test 파티션에 쿼터가 이미 활성화되어 있습니다.")
 
     except subprocess.CalledProcessError as e:
         print(f"{line}쿼터 활성화\n쿼터 활성화 실패 : {e}")
@@ -207,8 +207,7 @@ pm.max_spare_servers = 5
     except Exception as e:
         print(f"{line} PHP-FPM 설정\n설정 파일 생성 실패: {e}")
 
-import subprocess
-
+# httpd 파일 변경 함수
 def modify_httpd_conf_automatically(home_dir, username, line):
     try:
         # 파일 경로 정의
@@ -309,7 +308,6 @@ def modify_virtualhost_conf(username, home_dir, line_param, domain):
             print(f"{line_param}{conf_file_path} 생성\nVirtualHost 구문이 새로 생성되었습니다.")
             print(f"도메인으로 접속하시기 바랍니다: {domain}")
             return
-
         # 파일 열기
         with open(conf_file_path, 'r') as conf_file:
             lines = conf_file.readlines()
