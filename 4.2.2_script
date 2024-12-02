@@ -119,7 +119,8 @@ def quota_remount(home_dir, line):
         
     except subprocess.CalledProcessError as e:
         print(f"{line}쿼터 재마운트\n쿼터 재마운트 실패 : {e}")
-
+        
+# aquota.user 생성
 def make_aquota(aquota_path, line):    
     # /test 디렉토리에 aquota.user 파일이 있는지 확인
     if os.path.exists(aquota_path):
@@ -133,21 +134,6 @@ def make_aquota(aquota_path, line):
         except subprocess.CalledProcessError as e:
             print(f"aquota.user 파일 생성 중 오류가 발생했습니다: {e}")        
 
-# 쿼터 DB 생성
-def create_quota_db(line):
-    try:
-        # 쿼터 DB 파일이 이미 존재하는지 확인
-        quota_file = os.path.join('/test', "aquota.user")
-        
-        if os.path.exists(quota_file):
-            print(f"{line}쿼터 DB 생성\n쿼터 DB가 이미 존재합니다.")
-        else:
-            # 쿼터 DB 생성
-            subprocess.run(['sudo', 'quotacheck', '-avugm', '/test'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print(f"{line}쿼터 DB 생성\n쿼터 DB 생성 완료.")
-    
-    except subprocess.CalledProcessError as e:
-        print(f"{line}쿼터 DB 생성\n쿼터 DB 생성 실패 : {e}")
 
 # 쿼터 활성화
 def enable_quota(line):
@@ -159,12 +145,11 @@ def enable_quota(line):
         output = result.stdout.decode()
 
         # 결과에서 "user quota" 상태를 확인
-        if "user quota" in output and "on" in output:
-            print(f"{line}쿼터 활성화\n/test 파티션에 쿼터가 이미 활성화되어 있습니다.")
-        else:
-            # 쿼터 활성화가 되어 있지 않다면, 쿼터를 활성화
+        if "user quota" in output and "off" in output:
             subprocess.run(['sudo', 'quotaon', '/test'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             print(f"{line}쿼터 활성화\n쿼터 활성화 완료.")
+        else: 
+            print(f"{line}쿼터 활성화\n/test 파티션에 쿼터가 이미 활성화되어 있습니다.")
 
     except subprocess.CalledProcessError as e:
         print(f"{line}쿼터 활성화\n쿼터 활성화 실패 : {e}")
@@ -363,7 +348,6 @@ mount_partition(partition, home_dir, line)
 fstab(partition, line)
 quota_remount(home_dir, line)
 make_aquota(aquota_path, line)
-create_quota_db(line)
 enable_quota(line)
 set_user_quota(username, home_dir, line)
 change_authority(username, home_dir, line)
