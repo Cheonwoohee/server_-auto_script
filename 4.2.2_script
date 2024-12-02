@@ -1,0 +1,372 @@
+import os
+import subprocess
+
+username = input("사용자 이름을 입력하세요 : ")
+home_dir = f'/test/{username}'
+partition = input("사용할 파티션을 입력하세요 : ")
+line = "\n------------------------"
+aquota_path = "/test/aquota.user"
+domain = input("도메인을 입력하세요 : ")
+
+def change_dir(home_dir, username, line):
+    try:
+        # 사용자 존재 여부 확인
+        result = subprocess.run(['sudo', 'grep', f'^{username}:', '/etc/passwd'], capture_output=True, text=True)
+
+        # 사용자가 존재하지 않으면 새 사용자 추가
+        if result.returncode != 0:
+            print(f"{line}사용자 유무\n{username} 사용자가 존재하지 않습니다. 새로 추가합니다.")
+            subprocess.run(['sudo', 'useradd', '-m', '-d', home_dir, username], check=True)
+            print(f"{line}사용자 홈 디렉토리 지정\n{username}의 {home_dir}가 홈 디렉토리로 지정되었습니다.")
+        else:
+            # 사용자가 이미 존재하는 경우
+            print(f"{line}사용자 유무\n{username} 사용자가 이미 존재합니다.")
+
+            # 현재 홈 디렉토리 확인
+            current_home_dir = result.stdout.split(":")[5]
+            if not os.path.exists(home_dir):
+                print(f"{line}홈 디렉토리 생성\n{home_dir} 디렉토리가 존재하지 않으므로 새로 생성합니다.")
+                subprocess.run(['sudo', 'mkdir', '-p', home_dir], check=True)
+                print(f"디렉토리 생성 : {home_dir}")
+            
+            if current_home_dir == home_dir:
+                print(f"{line}홈 디렉토리 변경\n{username}의 홈 디렉토리는 이미 {home_dir}으로 설정되어 있습니다.")
+            else:
+                # 홈 디렉토리 변경
+                subprocess.run(['sudo', 'usermod', '-d', home_dir, username], check=True)
+                print(f"{line}홈 디렉토리 변경\n{username}의 홈 디렉토리를 {home_dir}으로 변경했습니다.")
+
+    except subprocess.CalledProcessError as e:
+        print(f"{line}홈 디렉토리 변경\n홈 디렉토리 변경 실패 : {e}")
+    except Exception as e:
+        print(f"{line}예상치 못한 오류\n오류: {e}")
+
+# 파일 시스템 생성 함수
+def file_system(partition, line):
+    try:
+        result = subprocess.run(['lsblk', '-f', '/dev/' + partition], capture_output=True, text=True)
+        if "ext4" in result.stdout:
+            print(f"{line}파일 시스템 생성\n{partition}은/는 이미 ext4 파일 시스템이 존재합니다.")
+        else:
+            subprocess.run(['sudo', 'mkfs', '-t', 'ext4', f'/dev/{partition}'], check=True)
+            print(f"{line}파일 시스템 생성\n{partition}에 ext4 파일 시스템 생성 완료.")
+    except subprocess.CalledProcessError as e:
+        print(f"{line}파일 시스템 생성\n파일 시스템 생성 실패 : {e}")
+
+# 마운트 함수
+def mount_partition(partition, home_dir, line):
+    try:
+        result = subprocess.run(['mount'], capture_output=True, text=True)
+        if f'/dev/{partition} on /test' in result.stdout:
+            print(f"{line}마운트\n{partition}은/는 이미 /test에 마운트되어 있습니다.")
+        
+        else:
+            subprocess.run(['sudo', 'mount', '-t', 'ext4', f'/dev/{partition}', '/test'], check=True)
+            print(f"{line}마운트\n{partition}을 {home_dir}에 ext4로 마운트 완료.")
+        
+    except subprocess.CalledProcessError as e:
+        print(f"{line}마운트\n파티션 마운트 실패 : {e}")
+
+
+# fstab 수정 함수
+def fstab(partition, line):
+    try:
+        # /etc/fstab 파일 열기
+        with open('/etc/fstab', 'r') as fstab_file:
+            lines = fstab_file.readlines()
+        
+        # fstab 항목 문자열 생성
+        fstab_entry = f"/dev/{partition}  /test  ext4  defaults,usrjquota=aquota.user,jqfmt=vfsv0  0  0".strip()
+
+        # fstab 파일에서 주석을 제외한 중복 항목 확인
+        lines = [entry.strip() for entry in lines if entry.strip() and not entry.strip().startswith("#")]
+
+        entry_exists = False
+        entry_index = -1  # 기존 항목의 인덱스를 추적
+
+        # 기존 fstab 항목 확인 및 수정 여부 결정
+        for i, file_line in enumerate(lines):
+            if file_line.startswith(partition):
+                entry_exists = True
+                entry_index = i
+                break
+
+        if entry_exists:
+            # 기존 항목을 수정
+            lines[entry_index] = fstab_entry  # 해당 라인을 새로운 항목으로 교체
+            with open('/etc/fstab', 'w') as fstab_file:
+                fstab_file.writelines("\n".join(lines) + "\n")
+            print(f"{line}/etc/fstab 수정\n{partition} 항목이 수정되었습니다.")
+        else:
+            # 중복 항목이 없다면 /etc/fstab에 새 항목 추가
+            with open('/etc/fstab', 'a') as fstab_file:
+                fstab_file.write(f"\n{fstab_entry}\n")
+            print(f"{line}/etc/fstab 수정\n{partition} 항목이 추가되었습니다.")
+    
+    except Exception as e:
+        print(f"{line}/etc/fstab 수정\nfstab 수정 실패 : {e}")
+
+
+# 쿼터 파일 생성 및 활성화 함수
+def quota_remount(home_dir, line):
+    try:
+        # 데몬 리로드
+        subprocess.run(['systemctl', 'daemon-reload'], check=True)
+
+        # 파티션 재마운트
+        subprocess.run(['sudo', 'mount', '-o', 'remount', '/test'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"{line}파티션 재마운트\n{home_dir} 파티션 재마운트 완료.")
+        
+    except subprocess.CalledProcessError as e:
+        print(f"{line}쿼터 재마운트\n쿼터 재마운트 실패 : {e}")
+
+def make_aquota(aquota_path, line):    
+    # /test 디렉토리에 aquota.user 파일이 있는지 확인
+    if os.path.exists(aquota_path):
+        print(f"{line}aquota.user\n이미 {aquota_path} 파일이 존재합니다. 파일을 새로 생성하지 않습니다.")
+    else:
+        try:
+            # aquota.user 파일이 없으면, quotacheck 명령어로 생성
+            print(f"{line}aquota.user\n{aquota_path} 파일이 존재하지 않습니다. 생성 중...")
+            subprocess.run(['sudo', 'quotacheck', '-cug', '/test'], check=True)
+            print(f"{line}aquota.user\n{aquota_path} 파일이 성공적으로 생성되었습니다.")
+        except subprocess.CalledProcessError as e:
+            print(f"aquota.user 파일 생성 중 오류가 발생했습니다: {e}")        
+
+# 쿼터 DB 생성
+def create_quota_db(line):
+    try:
+        # 쿼터 DB 파일이 이미 존재하는지 확인
+        quota_file = os.path.join('/test', "aquota.user")
+        
+        if os.path.exists(quota_file):
+            print(f"{line}쿼터 DB 생성\n쿼터 DB가 이미 존재합니다.")
+        else:
+            # 쿼터 DB 생성
+            subprocess.run(['sudo', 'quotacheck', '-avugm', '/test'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"{line}쿼터 DB 생성\n쿼터 DB 생성 완료.")
+    
+    except subprocess.CalledProcessError as e:
+        print(f"{line}쿼터 DB 생성\n쿼터 DB 생성 실패 : {e}")
+
+# 쿼터 활성화
+def enable_quota(line):
+    try:
+        # /test 파티션의 쿼터 상태 확인
+        result = subprocess.run(['sudo', 'quotaon', '-p', '/test'], check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        # 명령어의 출력 결과를 문자열로 변환
+        output = result.stdout.decode()
+
+        # 결과에서 "user quota" 상태를 확인
+        if "user quota" in output and "on" in output:
+            print(f"{line}쿼터 활성화\n/test 파티션에 쿼터가 이미 활성화되어 있습니다.")
+        else:
+            # 쿼터 활성화가 되어 있지 않다면, 쿼터를 활성화
+            subprocess.run(['sudo', 'quotaon', '/test'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"{line}쿼터 활성화\n쿼터 활성화 완료.")
+
+    except subprocess.CalledProcessError as e:
+        print(f"{line}쿼터 활성화\n쿼터 활성화 실패 : {e}")
+
+Soft_limit = input("Soft limit : ")
+Hard_limit = input("Hard limit : ")
+
+# 사용자 쿼터 설정 함수 (soft limit: 100MB, hard limit: 100MB)
+def set_user_quota(username, home_dir, line):
+    try:    
+        subprocess.run(['sudo', 'setquota', '-u', username, str(Soft_limit), str(Hard_limit), '0', '0', '/test'], check=True)
+        print(f"{line}쿼터 설정\n{username}의 디스크 쿼터를 {Soft_limit} Blocks, {Hard_limit} Blocks로 설정했습니다.")
+    except subprocess.CalledProcessError as e:
+        print(f"{line}쿼터 설정\n{username}의 쿼터 설정 실패 : {e}")
+
+# 권한 변경
+def change_authority(username, home_dir, line):
+    try:
+        # 'username:username' 형태로 사용자와 그룹을 지정
+        subprocess.run(['sudo', 'chown', f'{username}:{username}', home_dir], check=True)
+        print(f"{line}권한 변경\n{home_dir}의 권한이 {username}으로 변경되었습니다.")
+    except subprocess.CalledProcessError as e:
+        print(f"{line}권한 변경\n권한 변경 실패 : {e}")
+
+# PHP-FPM 소켓 생성
+def PHP_FPM_socket(username, line):
+    try:
+        conf_file_path = f'/etc/php-fpm.d/{username}.conf'
+
+        # 설정 파일이 존재하는지 확인
+        if os.path.exists(conf_file_path):
+            print(f"{line} PHP-FPM 설정\n{username}에 대한 설정 파일이 이미 존재합니다.")
+        else:
+            # 설정 파일이 존재하지 않으면 내용을 작성
+            php_fpm_config = f"""
+[{username}]
+user = {username}
+group = {username}
+listen = /var/run/php-fpm/{username}.sock
+listen.owner = {username}
+listen.group = {username}
+listen.mode = 0660
+pm = dynamic
+pm.max_children = 10
+pm.start_servers = 1
+pm.min_spare_servers = 1
+pm.max_spare_servers = 5
+"""
+            # 새로운 설정 파일 생성 및 내용 작성
+            with open(conf_file_path, 'w') as f:
+                f.write(php_fpm_config)
+
+            print(f"{line} PHP-FPM 설정\n{username}에 대한 설정 파일을 생성하고 내용을 추가했습니다.")
+
+    except Exception as e:
+        print(f"{line} PHP-FPM 설정\n설정 파일 생성 실패: {e}")
+
+import subprocess
+
+def modify_httpd_conf_automatically(home_dir, username, line):
+    try:
+        # 파일 경로 정의
+        httpd_conf_path = '/etc/httpd/conf/httpd.conf'
+
+        # 추가할 항목들 정의
+        include_line = f'Include /etc/httpd/conf.d/{username}.conf'
+        directory_block = f'''
+<Directory "{home_dir}">
+    AllowOverride None
+    Require all granted
+</Directory>
+'''
+        document_root_line = f'DocumentRoot "{home_dir}"'
+
+        # 파일에서 항목이 이미 있는지 확인하는 함수
+        def check_exists(entry):
+            try:
+                # entry가 여러 줄일 경우, 줄바꿈을 제거한 후 한 줄로 합쳐서 검사
+                entry = entry.strip()
+                result = subprocess.run(['grep', '-F', entry, httpd_conf_path], capture_output=True, text=True)
+                return result.returncode == 0  # 결과가 있으면 returncode 0
+            except Exception as e:
+                print(f"Error checking entry: {e}")
+                return False
+
+        # 항목들이 이미 존재하는지 확인
+        include_exists = check_exists(include_line)
+        directory_exists = check_exists(directory_block.strip())
+        document_root_exists = check_exists(document_root_line)
+
+        # 출력할 메시지들 초기화
+        modify_message = f"{line}{httpd_conf_path} 수정 완료\n"
+
+        # 각 항목에 대한 상태 메시지 추가
+        if include_exists:
+            modify_message += "Include 항목이 이미 존재합니다.\n"
+        else:
+            modify_message += "Include 항목이 존재하지 않으므로 추가합니다.\n"
+
+        if directory_exists:
+            modify_message += "<Directory> 항목이 이미 존재합니다.\n"
+        else:
+            modify_message += "<Directory> 항목이 존재하지 않으므로 추가합니다.\n"
+
+        if document_root_exists:
+            modify_message += "DocumentRoot 항목이 이미 존재합니다.\n"
+        else:
+            modify_message += "DocumentRoot 항목이 존재하지 않으므로 추가합니다.\n"
+
+        # 항목이 없으면 파일의 끝에 추가
+        if not include_exists or not directory_exists or not document_root_exists:
+            with open(httpd_conf_path, 'a') as file:
+                if not include_exists:
+                    file.write(f"\n{include_line}\n")
+                if not document_root_exists:
+                    file.write(f"{document_root_line}\n")
+                if not directory_exists:
+                    file.write(f"{directory_block}\n")
+            modify_message += "항목이 추가되었습니다.\n"
+
+        # 최종적으로 메시지 출력
+        print(modify_message)
+        
+    except Exception as e:
+        print(f"{httpd_conf_path} 수정 실패 : {e}")
+
+
+# /etc/httpd/conf.d/{username} 생성
+def modify_virtualhost_conf(username, home_dir, line_param, domain):
+    try:
+        # /etc/httpd/conf.d/{username}.conf 파일 경로
+        conf_file_path = f'/etc/httpd/conf.d/{username}.conf'
+
+        # 추가할 내용 정의
+        virtualhost_entry = f'''
+<VirtualHost *:80>
+    DocumentRoot {home_dir}
+    ServerName {domain}
+    ServerAlias www.{domain}
+
+    <Directory {home_dir}>
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    <FilesMatch \.php$>
+        SetHandler "proxy:unix:/var/run/php-fpm/{username}.sock|fcgi://localhost"
+    </FilesMatch>
+</VirtualHost>
+        '''.strip()
+
+        # 파일이 존재하지 않으면 생성
+        if not os.path.exists(conf_file_path):
+            with open(conf_file_path, 'w') as conf_file:
+                conf_file.write(virtualhost_entry + "\n")
+            print(f"{line_param}{conf_file_path} 생성\nVirtualHost 구문이 새로 생성되었습니다.")
+            print(f"도메인으로 접속하시기 바랍니다: {domain}")
+            return
+
+        # 파일 열기
+        with open(conf_file_path, 'r') as conf_file:
+            lines = conf_file.readlines()
+
+        # VirtualHost *:80 구문이 이미 존재하는지 확인
+        virtualhost_exists = False
+        inside_virtualhost_block = False
+
+        # VirtualHost 구문을 찾아서 존재 여부 확인
+        for line in lines:
+            if line.strip().startswith('<VirtualHost *:80>'):
+                inside_virtualhost_block = True
+            if inside_virtualhost_block and line.strip() == '</VirtualHost>':
+                virtualhost_exists = True
+                break
+
+        # 이미 VirtualHost 구문이 존재하는 경우
+        if virtualhost_exists:
+            # 이미 VirtualHost 구문이 존재하면 출력되지 않도록 처리
+            print(f"{line_param}{conf_file_path}수정\n이미 VirtualHost 구문이 존재합니다.")
+            print(f"도메인으로 접속하시기 바랍니다 : {domain}")
+        else:
+            # 구문이 없으면 파일의 끝에 추가
+            with open(conf_file_path, 'a') as conf_file:
+                conf_file.write("\n\n" + virtualhost_entry + "\n")
+            print(f"{line_param}{conf_file_path} 수정\nVirtualHost 구문이 추가되었습니다.")
+            print(f"도메인으로 접속하시기 바랍니다 : {domain}")
+
+    except Exception as e:
+        print(f"Error occurred: {e}")
+
+# 전체 함수 실행
+change_dir(home_dir, username, line)
+file_system(partition, line)
+mount_partition(partition, home_dir, line)
+fstab(partition, line)
+quota_remount(home_dir, line)
+make_aquota(aquota_path, line)
+create_quota_db(line)
+enable_quota(line)
+set_user_quota(username, home_dir, line)
+change_authority(username, home_dir, line)
+PHP_FPM_socket(username, line)
+modify_httpd_conf_automatically(home_dir, username, line)
+modify_virtualhost_conf(username, home_dir, line, domain)
