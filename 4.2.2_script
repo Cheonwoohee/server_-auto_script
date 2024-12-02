@@ -207,18 +207,19 @@ pm.max_spare_servers = 5
 # httpd 파일 변경 함수
 def modify_httpd_conf_automatically(home_dir, username, line):
     try:
-        # 파일 경로 정의
+        # httpd.conf 파일 경로 정의
         httpd_conf_path = '/etc/httpd/conf/httpd.conf'
 
         # 추가할 항목들 정의
         include_line = f'Include /etc/httpd/conf.d/{username}.conf'
-        directory_block = f'''
-<Directory "{home_dir}">
+        directory_block = f'<Directory /test>'
+        document_root_line = f'DocumentRoot "{home_dir}"'
+
+        directory = '''
+<Directory /test>
     AllowOverride None
     Require all granted
-</Directory>
-'''
-        document_root_line = f'DocumentRoot "{home_dir}"'
+</Directory>'''
 
         # 파일에서 항목이 이미 있는지 확인하는 함수
         def check_exists(entry):
@@ -263,15 +264,14 @@ def modify_httpd_conf_automatically(home_dir, username, line):
                 if not document_root_exists:
                     file.write(f"{document_root_line}\n")
                 if not directory_exists:
-                    file.write(f"{directory_block}\n")
+                    file.write(f"{directory}\n")
             modify_message += "항목이 추가되었습니다.\n"
 
         # 최종적으로 메시지 출력
         print(modify_message)
-        
+
     except Exception as e:
         print(f"{httpd_conf_path} 수정 실패 : {e}")
-
 
 # /etc/httpd/conf.d/{username} 생성
 def modify_virtualhost_conf(username, home_dir, line_param, domain):
